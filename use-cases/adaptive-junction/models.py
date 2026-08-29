@@ -1,4 +1,4 @@
-"""Shared junction types. Owned by folder 1; everyone else imports these."""
+"""shapes i keep dumping counts/plans into. don't redefine these in other folders."""
 from datetime import datetime
 from typing import Literal, Optional
 
@@ -10,8 +10,8 @@ Phase = Literal["green", "yellow", "all_red"]
 
 
 class SideTiming(BaseModel):
-    # Through-phase and protected-right-phase seconds.
-    # Upper bound matches pipeline MAX_GREEN (210s).
+    # straight = how long that side stays green. right overlaps the start of that.
+    # cap at 240 so pydantic doesn't scream if i fat-finger; real cap is 210 in pipeline.
     straight_s: float = Field(ge=5, le=240)
     right_s: float = Field(ge=0, le=240)
 
@@ -25,11 +25,11 @@ class TimingPlanPayload(BaseModel):
 
 
 class TrackedVehicle(BaseModel):
-    """One object the phone camera is following on an approach."""
+    """one blob the phone is tracking. i don't use this in the allocator, ui does."""
 
     track_id: str
     lane: Literal["left", "straight", "right"]
-    # 0 = back of queue (far), 1 = at stop line (near)
+    # 0 = stuck at the back, 1 = already at the stop line
     depth: float = Field(ge=0, le=1, default=0.5)
     moving: bool = False
     intent: Literal["left", "straight", "right"] = "straight"
@@ -143,7 +143,7 @@ class LatestCounts(BaseModel):
     east_straight: Optional[int] = None
     south_straight: Optional[int] = None
     west_straight: Optional[int] = None
-    tracks: dict[str, list[TrackedVehicle]] = Field(default_factory=dict)
+    tracks: dict[str, list[TrackedVehicle]] = Field(default_factory=dict)  # live camera stuff, not used here
 
 
 class AgentDecisionOut(BaseModel):
@@ -153,7 +153,7 @@ class AgentDecisionOut(BaseModel):
 
 
 class AgentSent(BaseModel):
-    """Exactly what was handed to the allocator for one exchange."""
+    """debug dump of what i fed the allocator that time."""
 
     counts: dict[str, int] = Field(default_factory=dict)
     right_counts: dict[str, int] = Field(default_factory=dict)
@@ -163,7 +163,7 @@ class AgentSent(BaseModel):
 
 
 class AgentReceived(BaseModel):
-    """What the allocator handed back for that exchange."""
+    """what came back. llm field is leftover, we don't call gemini anymore."""
 
     straight_s: dict[str, float] = Field(default_factory=dict)
     right_s: dict[str, float] = Field(default_factory=dict)

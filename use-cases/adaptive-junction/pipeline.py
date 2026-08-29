@@ -1,9 +1,9 @@
 """
-Deterministic 5-step green allocator for a 4-way LHT junction.
+green time math. that's it.
 
-Splits an 8-minute loop's green budget across North → East → West → South
-from queue lengths. The LLM never invents seconds; Person 4 tools call
-`compute_timing_plan` only.
+8 min loop, N then E then W then S. i only split the green leftover after
+yellows. don't let the chatbot invent seconds — everyone should call
+compute_timing_plan and leave it alone.
 """
 from __future__ import annotations
 
@@ -15,19 +15,19 @@ from models import LatestCounts, SideTiming, TimingPlanPayload
 APPROACHES = ("north", "east", "west", "south")
 MOVEMENTS = APPROACHES
 
-CYCLE_TOTAL = 480.0
+CYCLE_TOTAL = 480.0  # 8 min. don't change unless the real junction does
 YELLOW_TIME = 3.0
 ALL_RED_TIME = 2.0
 TRANSITION_TIME = YELLOW_TIME + ALL_RED_TIME
 NUM_PHASES = 4
-GREEN_POOL = CYCLE_TOTAL - NUM_PHASES * TRANSITION_TIME  # 460.0s
+GREEN_POOL = CYCLE_TOTAL - NUM_PHASES * TRANSITION_TIME  # 460 left for actual green
 
-MIN_GREEN = 30.0
-MAX_GREEN = 210.0
+MIN_GREEN = 30.0  # nobody gets starved even if empty
+MAX_GREEN = 210.0  # 3.5 min, one side can't eat the whole loop
 
 PEDESTRIAN_MIN_WALK = 5.0
 PEDESTRIAN_CLEARANCE = 4.0
-METRES_PER_VEHICLE = 6.0
+METRES_PER_VEHICLE = 6.0  # demo fudge: 1 car ≈ 6m of queue. good enough for toy cars
 
 
 @dataclass
@@ -62,9 +62,7 @@ class CyclePlan:
     reason: str = ""
 
     def to_timing_payload(self) -> TimingPlanPayload:
-        """One green window per approach. `right_s` overlaps the first part
-        of that window (does not add extra time to the 8-minute loop).
-        """
+        """right green sits on the front of straight. not extra time. keep forgetting that."""
         sides: Dict[str, SideTiming] = {}
         for side in APPROACHES:
             green = float(self.greens[side])
@@ -88,7 +86,7 @@ class CyclePlan:
 
 
 class PairAggregationAgent:
-    """Total metres waiting on each approach (through + right)."""
+    """just add through + right so i have one number per side."""
 
     def run(self, lengths: Dict[str, Dict[str, float]]) -> Dict[str, float]:
         for a in APPROACHES:
@@ -102,7 +100,7 @@ class PairAggregationAgent:
 
 
 class SortAgent:
-    """Sorts the 4 movement lengths (meters) ascending."""
+    """shortest → longest. only used in the reason string honestly."""
 
     def run(self, movement_lengths: Dict[str, float]) -> List[Tuple[str, float]]:
         if set(movement_lengths.keys()) != set(MOVEMENTS):
@@ -113,7 +111,7 @@ class SortAgent:
 
 
 class TimeAllocationAgent:
-    """Splits the green budget proportional to queue length, with min/max clamps."""
+    """split the 460s by how long each queue is. peel off max violators first, then mins."""
 
     def run(
         self,
@@ -132,9 +130,11 @@ class TimeAllocationAgent:
 
         total = sum(lengths.values())
         if total <= 0:
+            # empty junction — just split even, still clamp
             share = remaining_pool / len(MOVEMENTS)
             return {k: round(max(MIN_GREEN, min(MAX_GREEN, share)), 1) for k in MOVEMENTS}
 
+        # anyone whose share would blow past MAX — give them max and take them out
         progressed = True
         while progressed and remaining_keys:
             progressed = False
@@ -150,6 +150,7 @@ class TimeAllocationAgent:
                     progressed = True
                     break
 
+        # same idea but for people who'd get less than 30s
         progressed = True
         while progressed and remaining_keys:
             progressed = False
@@ -164,6 +165,7 @@ class TimeAllocationAgent:
                     progressed = True
                     break
 
+        # leftover pool, leftover sides
         t = sum(lengths[k] for k in remaining_keys)
         n_left = len(remaining_keys)
         for k in remaining_keys:
@@ -179,16 +181,16 @@ class TimeAllocationAgent:
 
 
 class PhaseSchedulerAgent:
-    """Fixed 8-minute order: North → East → West → South."""
+    """order is locked. i don't reshuffle even if west is a parking lot."""
 
     def run(
         self,
         greens: Dict[str, float],
         movement_lengths: Dict[str, float],
     ) -> Tuple[List[str], Tuple[str, str], List[TimelineEvent]]:
-        _ = movement_lengths
+        _ = movement_lengths  # scheduler doesn't care about metres, just the greens
         phase_order = list(APPROACHES)
-        group_order = ("n-e", "w-s")
+        group_order = ("n-e", "w-s")  # leftover label, engine doesn't use this
 
         t = 0.0
         events: List[TimelineEvent] = []
@@ -205,7 +207,7 @@ class PhaseSchedulerAgent:
 
 
 class PedestrianAgent:
-    """Walk is parallel to the through movement; rights are don't-walk."""
+    """walk when the parallel through is green. rights = don't walk, they cut across."""
 
     _WALK_WITH = {
         "north": ("east", "west"),
@@ -242,6 +244,7 @@ class PedestrianAgent:
 
 
 def _fill_dont_walk(intervals: List[PedInterval], cycle_end: float) -> List[PedInterval]:
+    # pad the gaps so each crosswalk has a full cycle of states
     filled: List[PedInterval] = []
     t = 0.0
     for iv in sorted(intervals, key=lambda x: x.start_s):
@@ -298,7 +301,7 @@ _pipeline = PriorityAgentPipeline()
 
 
 def latest_counts_to_queue_lengths(counts: LatestCounts) -> Dict[str, Dict[str, float]]:
-    """Map demo vehicle counts onto the 8 CCTV queue lengths (metres)."""
+    """phones send cars, paper wants metres. if they gave right count, through = total - right."""
     out: Dict[str, Dict[str, float]] = {}
     for side in APPROACHES:
         total = max(0, int(getattr(counts, side) or 0))
@@ -325,7 +328,7 @@ def compute_timing_plan(
     counts: LatestCounts,
     cycle_green_budget: float = GREEN_POOL,
 ) -> TimingPlanPayload:
-    """Deterministic 5-step pipeline. No network calls."""
+    """the function everyone else should hit. no api, no llm, just numbers."""
     lengths = latest_counts_to_queue_lengths(counts)
     cycle = _pipeline.run(lengths, green_pool=cycle_green_budget)
     return cycle.to_timing_payload()

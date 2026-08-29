@@ -1,4 +1,4 @@
-"""Pipeline tests — Person 1 only (no signal engine, no LLM)."""
+"""quick checks so i don't break the split. no lights, no slack, just math."""
 from __future__ import annotations
 
 from models import LatestCounts
@@ -13,6 +13,7 @@ from pipeline import (
 
 
 def test_pair_aggregation_sums_through_and_right() -> None:
+    # 40+10 should just be 50, if this fails i typed the dict wrong
     agg = PairAggregationAgent()
     movements = agg.run(
         {
@@ -29,6 +30,7 @@ def test_pair_aggregation_sums_through_and_right() -> None:
 
 
 def test_empty_counts_split_green_pool() -> None:
+    # nobody there → even split, still inside min/max
     out = compute_timing_plan(LatestCounts())
     greens = (
         out.north.straight_s
@@ -42,6 +44,7 @@ def test_empty_counts_split_green_pool() -> None:
 
 
 def test_reason_mentions_n_e_w_s_loop() -> None:
+    # dashboard reads this string, keep the letters in it
     out = compute_timing_plan(LatestCounts())
     assert "N" in out.reason and "E" in out.reason
     assert "W" in out.reason and "S" in out.reason
@@ -49,6 +52,7 @@ def test_reason_mentions_n_e_w_s_loop() -> None:
 
 
 def test_busy_north_gets_more_green() -> None:
+    # whole point of this thing
     busy = compute_timing_plan(LatestCounts(north=30, east=2, west=2, south=2))
     assert busy.north.straight_s > busy.east.straight_s
     assert busy.north.straight_s > busy.west.straight_s
@@ -57,6 +61,7 @@ def test_busy_north_gets_more_green() -> None:
 
 
 def test_latest_counts_to_queue_lengths_uses_right_split() -> None:
+    # 10 cars, 4 turning right → 6 through. *6m each
     lengths = latest_counts_to_queue_lengths(
         LatestCounts(north=10, north_right=4, east=0, west=0, south=0)
     )
