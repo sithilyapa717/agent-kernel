@@ -61,6 +61,14 @@ def run_plan_from_counts(
         saved = store.save_timing_plan(db, plan, run_id=engine.run_id, applied=False)
         _last_plan_id = saved.id
         engine.queue_timing_plan(plan)
+        # Loop wrap still queues until North. RUN NOW / Slack / SIM (agent on)
+        # apply immediately so the Timings strip actually changes.
+        apply_live = trigger in ("manual", "slack_or_cli") or (
+            trigger == "sim" and engine.agent_enabled
+        )
+        if apply_live:
+            engine.apply_pending_now()
+            store.mark_plan_applied(db, saved.id)
         agent_debug.record(
             trigger=trigger,
             cycle_index=engine.cycle_index,
@@ -111,7 +119,12 @@ async def startup() -> None:
     simulator.get_run_id = lambda: engine.run_id
     simulator.queue_plan = engine.queue_timing_plan
     simulator.set_last_plan_id = set_last_plan_id
-    simulator.on_counts_updated = lambda counts: run_plan_from_counts(counts, trigger="sim")
+    def _on_sim_counts(counts: LatestCounts) -> None:
+        if not engine.agent_enabled:
+            return
+        run_plan_from_counts(counts, trigger="sim")
+
+    simulator.on_counts_updated = _on_sim_counts
     _prev_pending = False
     await engine.start()
     await simulator.start()

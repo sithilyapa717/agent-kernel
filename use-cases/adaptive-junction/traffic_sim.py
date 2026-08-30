@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import random
+import time
 from typing import Awaitable, Callable, Optional, Union
 
 from database import SessionLocal
@@ -25,6 +26,12 @@ class TrafficSimulator:
         self.queue_plan: Optional[Callable] = None
         self.set_last_plan_id: Optional[Callable[[int], None]] = None
         self.on_counts_updated: Optional[Callable[[LatestCounts], Union[None, Awaitable[None]]]] = None
+        self._camera_until: dict[str, float] = {}
+        self.camera_hold_s = 15.0
+
+    def note_camera_side(self, side: str) -> None:
+        """Don't overwrite this approach while a phone is sending live counts."""
+        self._camera_until[side] = time.monotonic() + self.camera_hold_s
 
     async def start(self) -> None:
         if self._running:
@@ -51,7 +58,13 @@ class TrafficSimulator:
             run_id = self.get_run_id() if self.get_run_id else None
             counts = store.latest_counts(db, run_id=run_id)
 
-            targets = random.sample(list(SIDES), k=random.choice([1, 1, 2]))
+            targets = [
+                s
+                for s in random.sample(list(SIDES), k=random.choice([1, 1, 2]))
+                if time.monotonic() >= self._camera_until.get(s, 0)
+            ]
+            if not targets:
+                return counts
             changed = False
             for side in targets:
                 cur = getattr(counts, side)

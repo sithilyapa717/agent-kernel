@@ -8,6 +8,7 @@ dist_*/
 *.zip
 *.pyc
 junction.db
+.env
 frontend/node_modules/
 frontend/dist/
 

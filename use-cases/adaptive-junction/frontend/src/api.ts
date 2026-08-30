@@ -10,16 +10,53 @@ import type {
   Side,
 } from "./types";
 
-/** Same host as the UI. Vite proxies /api → :8000; phones use LAN host :8000. */
+function isViteDevPort(port: string): boolean {
+  return port === "5173" || port === "5174";
+}
+
+/** Same host as the UI. Vite proxies /api → :8000. */
 function apiBase(): string {
   const { protocol, hostname, port } = window.location;
-  if (port === "5173") return "/api";
+  if (isViteDevPort(port)) return "/api";
   return `${protocol}//${hostname}:8000/api`;
 }
 
 export async function fetchSignal(): Promise<SignalSnapshot> {
   const r = await fetch(`${apiBase()}/signal`);
   if (!r.ok) throw new Error("Failed to fetch signal");
+  return r.json();
+}
+
+export async function fetchDetectStatus(): Promise<{
+  ok: boolean;
+  mode: "roboflow" | "offline";
+  server_up: boolean;
+  has_api_key: boolean;
+  error?: string | null;
+}> {
+  const r = await fetch(`${apiBase()}/detect/status`);
+  if (!r.ok) return { ok: false, mode: "offline", server_up: false, has_api_key: false };
+  return r.json();
+}
+
+export async function detectFrame(image: string): Promise<{
+  tracks: TrackedVehicle[];
+  left: number;
+  straight: number;
+  right: number;
+  total: number;
+  image_width?: number;
+  image_height?: number;
+}> {
+  const r = await fetch(`${apiBase()}/detect`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ image }),
+  });
+  if (!r.ok) {
+    const detail = await r.text();
+    throw new Error(detail || `detect failed (${r.status})`);
+  }
   return r.json();
 }
 
@@ -105,6 +142,7 @@ export async function recomputeAgent(): Promise<{
   explanation: string;
 }> {
   const r = await fetch(`${apiBase()}/agent/recompute`, { method: "POST" });
+  if (!r.ok) throw new Error(`agent run failed (${r.status})`);
   return r.json();
 }
 
@@ -134,5 +172,13 @@ export async function setSim(enabled: boolean): Promise<{ enabled: boolean }> {
 
 export function wsUrl(): string {
   const proto = window.location.protocol === "https:" ? "wss" : "ws";
-  return `${proto}://${window.location.hostname}:8000/ws`;
+  const { hostname, port, host } = window.location;
+  if (isViteDevPort(port)) return `${proto}://${host}/ws`;
+  return `${proto}://${hostname}:8000/ws`;
+}
+
+export async function fetchLan(): Promise<{ ips: string[]; phone_port: number; pc_port: number }> {
+  const r = await fetch(`${apiBase()}/lan`);
+  if (!r.ok) return { ips: [], phone_port: 5174, pc_port: 5173 };
+  return r.json();
 }

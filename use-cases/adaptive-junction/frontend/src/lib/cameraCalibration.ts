@@ -48,8 +48,8 @@ export const DEFAULT_CAM_PROFILE: CamProfile = {
   size: { ...DEFAULT_SIZE_MODEL },
   laneSplitLeft: 1 / 3,
   laneSplitRight: 2 / 3,
-  sensitivity: 1,
-  satMin: 35,
+  sensitivity: 0.55,
+  satMin: 80,
   roi: { top: 0.05, bottom: 0.05, left: 0.02, right: 0.02 },
   focusCm: null,
   qualityScore: 0,
@@ -75,13 +75,33 @@ export interface FrameQuality {
   tips: string[];
 }
 
+// v4: ignore far focus-sensor distances that treated wood grain as cars
 function profileKey(side: string, deviceId?: string | null): string {
   const id = (deviceId || "default").replace(/[^\w-]+/g, "").slice(0, 48) || "default";
-  return `junction-cam-profile-v2-${side}-${id}`;
+  return `junction-cam-profile-v4-${side}-${id}`;
 }
 
 function legacySideKey(side: string): string {
-  return `junction-cam-profile-${side}`;
+  return `junction-cam-profile-v4-${side}`;
+}
+
+/** Table-demo range. Phone focus often reports ~1 m and that is not usable. */
+export function usableTableDistanceCm(cm: number | null | undefined): number | null {
+  if (cm == null || !Number.isFinite(cm)) return null;
+  if (cm < 15 || cm > 80) return null;
+  return Math.round(cm);
+}
+
+function saneLaneSplits(
+  left?: number,
+  right?: number
+): { laneSplitLeft: number; laneSplitRight: number } {
+  const l = left ?? 1 / 3;
+  const r = right ?? 2 / 3;
+  if (r - l < 0.2 || l < 0.22 || r < 0.5 || r > 0.82) {
+    return { laneSplitLeft: 1 / 3, laneSplitRight: 2 / 3 };
+  }
+  return { laneSplitLeft: l, laneSplitRight: r };
 }
 
 export function loadCamProfile(side: string, deviceId?: string | null): CamProfile {
@@ -91,11 +111,13 @@ export function loadCamProfile(side: string, deviceId?: string | null): CamProfi
       const raw = localStorage.getItem(key);
       if (!raw) continue;
       const parsed = JSON.parse(raw) as Partial<CamProfile>;
+      const splits = saneLaneSplits(parsed.laneSplitLeft, parsed.laneSplitRight);
       return {
         ...DEFAULT_CAM_PROFILE,
         ...parsed,
+        ...splits,
         size: { ...DEFAULT_SIZE_MODEL, ...(parsed.size ?? {}) },
-        roi: { ...DEFAULT_CAM_PROFILE.roi, ...(parsed.roi ?? {}) },
+        roi: { ...DEFAULT_CAM_PROFILE.roi },
         camera: parsed.camera ?? null,
       };
     }
@@ -276,37 +298,22 @@ export function laneSplitsFromThree(cxSorted: number[], frameW: number): {
   const [a, b, c] = cxSorted;
   let left = (a + b) / 2 / frameW;
   let right = (b + c) / 2 / frameW;
-  left = Math.min(0.45, Math.max(0.15, left));
-  right = Math.min(0.85, Math.max(left + 0.12, right));
+  left = Math.min(0.42, Math.max(0.25, left));
+  right = Math.min(0.78, Math.max(0.55, right));
+  if (right - left < 0.18) {
+    return { laneSplitLeft: 1 / 3, laneSplitRight: 2 / 3 };
+  }
   return { laneSplitLeft: left, laneSplitRight: right };
 }
 
 /** Suggest ROI that tightens around current detections + margin. */
 export function suggestRoiFromTracks(
-  vehicles: TrackedVehicle[],
-  frameW: number,
-  frameH: number
+  _vehicles: TrackedVehicle[],
+  _frameW: number,
+  _frameH: number
 ): CamRoi {
-  if (!vehicles.length) return { ...DEFAULT_CAM_PROFILE.roi };
-  let minX = frameW;
-  let maxX = 0;
-  let minY = frameH;
-  let maxY = 0;
-  for (const v of vehicles) {
-    if (!v.bbox) continue;
-    minX = Math.min(minX, v.bbox.x);
-    maxX = Math.max(maxX, v.bbox.x + v.bbox.w);
-    minY = Math.min(minY, v.bbox.y);
-    maxY = Math.max(maxY, v.bbox.y + v.bbox.h);
-  }
-  const padX = frameW * 0.08;
-  const padY = frameH * 0.1;
-  return {
-    left: Math.max(0, Math.min(0.25, (minX - padX) / frameW)),
-    right: Math.max(0, Math.min(0.25, 1 - (maxX + padX) / frameW)),
-    top: Math.max(0, Math.min(0.25, (minY - padY) / frameH)),
-    bottom: Math.max(0, Math.min(0.25, 1 - (maxY + padY) / frameH)),
-  };
+  // Keep almost the full frame — a tight crop drops the far-left / far-right toy.
+  return { top: 0.04, bottom: 0.04, left: 0.02, right: 0.02 };
 }
 
 /** Pick the blob closest to frame center (for size calibration). */
@@ -327,6 +334,7 @@ export function pickCenterBlob(blobs: Blob[], frameW: number, frameH: number): B
 }
 
 export function sensitivityLabel(s: number): string {
+  if (s < 0.6) return "very strict";
   if (s < 0.85) return "strict";
   if (s > 1.15) return "loose";
   return "normal";

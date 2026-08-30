@@ -609,6 +609,24 @@ export function VirtualJunction({
         }
       }
 
+      const depthOf = new Map(tracks.map((t) => [t.track_id, t.depth]));
+      const byLane = new Map<Lane, Car[]>();
+      for (const c of list) {
+        if (c.side !== side || !c.trackId) continue;
+        if (!byLane.has(c.lane)) byLane.set(c.lane, []);
+        byLane.get(c.lane)!.push(c);
+      }
+      for (const group of byLane.values()) {
+        group.sort((a, b) => (depthOf.get(b.trackId!) ?? 0) - (depthOf.get(a.trackId!) ?? 0));
+        for (let i = 0; i < group.length; i++) {
+          const want = STOP - i * CAR_GAP;
+          if (Math.abs(group[i].path - want) > 0.0005) {
+            group[i].path = want;
+            changed = true;
+          }
+        }
+      }
+
       return changed;
     };
 

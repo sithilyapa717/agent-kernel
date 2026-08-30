@@ -2,19 +2,22 @@
 from __future__ import annotations
 
 import asyncio
+import socket
 
-from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
 
 from database import get_db
 from models import (
     AgentDecisionOut,
     DepartIn,
+    DetectFrameIn,
     EnabledToggle,
     LatestCounts,
     TimingPlanPayload,
     VehicleCountIn,
 )
+import roboflow_detect
 from signal_engine import default_timings
 import persistence as store
 import track_store
@@ -62,9 +65,58 @@ def health():
     return {"ok": True}
 
 
+@router.get("/api/lan")
+def lan_info():
+    """LAN IPv4s so the dashboard can print phone HTTPS camera URLs."""
+    ips: list[str] = []
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            ip = info[4][0]
+            if ip.startswith("127.") or ip in ips:
+                continue
+            ips.append(ip)
+    except OSError:
+        pass
+    if not ips:
+        try:
+            probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            probe.connect(("8.8.8.8", 80))
+            ip = probe.getsockname()[0]
+            probe.close()
+            if not ip.startswith("127."):
+                ips.append(ip)
+        except OSError:
+            pass
+    return {"ips": ips, "phone_port": 5174, "pc_port": 5173}
+
+
 @router.get("/api/signal")
 def get_signal():
     return engine.snapshot()
+
+
+@router.get("/api/detect/status")
+def detect_status():
+    return roboflow_detect.status()
+
+
+@router.post("/api/detect")
+def detect_frame(body: DetectFrameIn):
+    raw = body.image.strip()
+    if "," in raw and raw.lower().startswith("data:"):
+        raw = raw.split(",", 1)[1]
+    try:
+        import base64
+
+        image_bytes = base64.b64decode(raw, validate=False)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"bad image: {exc}") from exc
+    if len(image_bytes) < 80:
+        raise HTTPException(status_code=400, detail="image too small")
+    try:
+        return roboflow_detect.detect_jpeg(image_bytes)
+    except (RuntimeError, TimeoutError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @router.post("/api/counts")
@@ -82,6 +134,7 @@ async def post_count(body: VehicleCountIn, db: Session = Depends(get_db)):
     )
     if body.source == "camera" or body.tracks is not None:
         track_store.set_tracks(body.side, body.tracks)
+        simulator.note_camera_side(body.side)
     elif body.source in ("manual", "clear"):
         track_store.clear_tracks(body.side)
     return row

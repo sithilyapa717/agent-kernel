@@ -145,8 +145,8 @@ export function CalibrationPanel({
             Detection sensitivity ({sensitivityLabel(profile.sensitivity)})
             <input
               type="range"
-              min={0.6}
-              max={1.4}
+              min={0.45}
+              max={1.3}
               step={0.05}
               value={profile.sensitivity}
               onChange={(e) => onSensitivity(Number(e.target.value))}
@@ -225,17 +225,16 @@ export function CalibrationPanel({
             FOV {profile.size.hfovDeg}°
             {tapeCm > 0 ? " · tape will set FOV" : ""}
           </p>
+          <p className="calib-copy">
+            If the box never appears: tap <b>Reset background</b> with the table empty, then put
+            one object back in the middle.
+          </p>
           <div className="btn-row">
             <button type="button" className="btn ghost" onClick={onSkip}>
               Cancel
             </button>
-            <button
-              type="button"
-              className="btn primary"
-              disabled={trackCount < 1}
-              onClick={onCaptureSize}
-            >
-              Capture size → lanes
+            <button type="button" className="btn primary" onClick={onCaptureSize}>
+              {trackCount < 1 ? "Skip size → lanes" : "Capture size → lanes"}
             </button>
           </div>
         </>
@@ -247,9 +246,11 @@ export function CalibrationPanel({
             <b>4 · Lanes</b> — three toys L·S·R for this framing. Saved only for {side}.
           </p>
           <p className={`calib-meta ${laneOk ? "ok" : "warn"}`}>
-            {laneOk
-              ? "Three objects seen — ready to lock lanes"
-              : `Need 3 side-by-side (now ${trackCount})`}
+            {trackCount >= 3
+              ? "Three objects seen — ready to lock L · S · R"
+              : laneOk
+                ? "Two objects seen — will use equal L / S / R thirds (add a third if you can)"
+                : `Need at least 2 side-by-side (now ${trackCount})`}
           </p>
           <div className="btn-row">
             <button type="button" className="btn ghost" onClick={onSkip}>

@@ -24,6 +24,13 @@ class TimingPlanPayload(BaseModel):
     reason: str = ""
 
 
+class BBox(BaseModel):
+    x: float
+    y: float
+    w: float
+    h: float
+
+
 class TrackedVehicle(BaseModel):
     """one blob the phone is tracking. i don't use this in the allocator, ui does."""
 
@@ -33,6 +40,12 @@ class TrackedVehicle(BaseModel):
     depth: float = Field(ge=0, le=1, default=0.5)
     moving: bool = False
     intent: Literal["left", "straight", "right"] = "straight"
+    bbox: Optional[BBox] = None
+
+
+class DetectFrameIn(BaseModel):
+    image: str
+    side: Optional[Side] = None
 
 
 class VehicleCountIn(BaseModel):
@@ -78,6 +91,7 @@ class SignalSnapshot(BaseModel):
     timings: TimingPlanPayload
     sides: dict[str, SideSignalState]
     pending_plan: bool
+    pending_timings: Optional[TimingPlanPayload] = None
     agent_enabled: bool = False
     run_id: Optional[int] = None
 

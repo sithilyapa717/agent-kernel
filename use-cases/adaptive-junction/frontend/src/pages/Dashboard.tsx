@@ -16,6 +16,7 @@ import {
   setAgent,
   setSim,
 } from "../api";
+import { PhoneCamHint } from "../components/PhoneCamHint";
 import { DEFAULT_SPAWN_RATE, VirtualJunction } from "../components/VirtualJunction";
 import { useSignalSocket } from "../hooks/useSignalSocket";
 import type {
@@ -51,7 +52,7 @@ export function Dashboard() {
   const [history, setHistory] = useState<VehicleCountRow[]>([]);
   const [busy, setBusy] = useState(false);
   const [simOn, setSimOn] = useState(true);
-  const [agentOn, setAgentOn] = useState(false);
+  const [agentOn, setAgentOn] = useState(true);
   const [agentBusy, setAgentBusy] = useState(false);
   const [ctrlError, setCtrlError] = useState<string | null>(null);
   const [spawnRate, setSpawnRate] = useState(loadSpawnRate);
@@ -103,14 +104,14 @@ export function Dashboard() {
       ? snapshot.cycle_remaining_s - 60
       : null;
   const agentStatusLine = !agentOn
-    ? "AGENT off — no counts are sent to the agent"
+    ? "AGENT off — SIM will not retune greens; RUN NOW still applies a plan immediately"
     : secondsToAgentRun === null
-    ? "AGENT on"
+    ? "AGENT on — SIM retunes greens as queues change"
     : secondsToAgentRun <= 0
-    ? "AGENT on — sending now, plan lands before the next loop"
-    : `AGENT on — next send in ${Math.floor(secondsToAgentRun / 60)}m ${Math.floor(
-        secondsToAgentRun % 60
-      )}s`;
+    ? "AGENT on — next-loop plan queued; live greens already follow SIM / RUN NOW"
+    : `AGENT on — SIM retunes live greens; extra next-loop plan in ${Math.floor(
+        secondsToAgentRun / 60
+      )}m ${Math.floor(secondsToAgentRun % 60)}s`;
 
   return (
     <div className="app-frame split">
@@ -165,7 +166,7 @@ export function Dashboard() {
             type="button"
             className={`chip ${agentOn ? "on" : ""}`}
             disabled={agentBusy}
-            title="AGENT ON: engine asks for a plan ~60s before the 8-minute loop wraps. Plans queue until the next North wrap, or click APPLY. Slack/CLI is Agent Kernel; numbers come from the allocator, not a stub."
+            title="AGENT ON: SIM retunes live greens from queue counts. ~60s before the 8-minute wrap a next-loop plan is also queued (APPLY or wait for North). Slack/CLI is Agent Kernel; numbers come from the allocator."
             onClick={async () => {
               const next = !agentOn;
               agentPending.current = true;
@@ -296,8 +297,25 @@ export function Dashboard() {
               </div>
             ))}
           </div>
+          {snapshot.pending_plan && snapshot.pending_timings && (
+            <>
+              <p className="hint">queued for next North wrap</p>
+              <div className="strip timings queued">
+                {SIDES.map((s) => (
+                  <div key={s} className="strip-cell">
+                    <span>{s[0].toUpperCase()}</span>
+                    <strong>{snapshot.pending_timings![s].straight_s}s</strong>
+                    <small>R {snapshot.pending_timings![s].right_s}</small>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
           <p className="agent-line" title={t.reason}>
-            {t.reason || (agentOn ? "Waiting for the next loop’s allocator plan (queued at wrap, or APPLY now)." : "AGENT off — current loop keeps its timings.")}
+            {t.reason ||
+              (agentOn
+                ? "Waiting for SIM or RUN NOW to retune live greens."
+                : "AGENT off — live greens stay put until RUN NOW.")}
           </p>
         </section>
 
@@ -309,7 +327,7 @@ export function Dashboard() {
                 type="button"
                 className="chip tiny"
                 disabled={agentBusy}
-                title="Run the agent immediately instead of waiting for the loop"
+                title="Compute from current queues and apply greens immediately"
                 onClick={async () => {
                   setAgentBusy(true);
                   setCtrlError(null);
@@ -427,6 +445,7 @@ export function Dashboard() {
 
         <section className="debug-block">
           <h3>Cameras</h3>
+          <PhoneCamHint />
           <div className="strip cams">
             {SIDES.map((s) => (
               <Link key={s} to={`/capture/${s}`}>

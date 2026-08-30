@@ -37,8 +37,9 @@ export interface SignalSnapshot {
   cycle_remaining_s?: number;
   timings: TimingPlan;
   sides: Record<string, SideSignalState>;
-    pending_plan: boolean;
-    agent_enabled?: boolean;
+  pending_plan: boolean;
+  pending_timings?: TimingPlan | null;
+  agent_enabled?: boolean;
     run_id: number | null;
 }
 

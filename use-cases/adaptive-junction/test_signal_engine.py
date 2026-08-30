@@ -49,3 +49,29 @@ async def test_right_goes_red_while_straight_stays_green() -> None:
 
 def test_cycle_order() -> None:
     assert CYCLE_ORDER == ["north", "east", "west", "south"]
+
+
+def test_apply_pending_now_swaps_live_timings() -> None:
+    start = TimingPlanPayload(
+        north=SideTiming(straight_s=40, right_s=10),
+        east=SideTiming(straight_s=30, right_s=8),
+        west=SideTiming(straight_s=25, right_s=6),
+        south=SideTiming(straight_s=20, right_s=5),
+        reason="start",
+    )
+    nxt = TimingPlanPayload(
+        north=SideTiming(straight_s=80, right_s=20),
+        east=SideTiming(straight_s=30, right_s=8),
+        west=SideTiming(straight_s=25, right_s=6),
+        south=SideTiming(straight_s=20, right_s=5),
+        reason="next",
+    )
+    eng = SignalEngine(timings=start)
+    eng.queue_timing_plan(nxt)
+    assert eng.snapshot().pending_plan is True
+    assert eng.snapshot().timings.north.straight_s == 40
+    assert eng.apply_pending_now() is True
+    snap = eng.snapshot()
+    assert snap.pending_plan is False
+    assert snap.timings.north.straight_s == 80
+    assert snap.timings.reason == "next"

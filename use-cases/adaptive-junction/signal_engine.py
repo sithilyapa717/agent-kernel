@@ -74,7 +74,8 @@ class SignalEngine:
     _running: bool = False
     _task: Optional[asyncio.Task] = None
     _precompute_started: bool = False
-    agent_enabled: bool = False
+    # On so SIM + RUN NOW show new greens without waiting for the 8-minute wrap.
+    agent_enabled: bool = True
     on_event: Optional[EventCallback] = None
     on_broadcast: Optional[BroadcastCallback] = None
     on_precompute: Optional[PrecomputeCallback] = None
@@ -160,6 +161,7 @@ class SignalEngine:
             timings=self.timings,
             sides=sides,
             pending_plan=self.pending_timings is not None,
+            pending_timings=self.pending_timings,
             agent_enabled=self.agent_enabled,
             run_id=self.run_id,
         )
