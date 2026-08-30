@@ -1,0 +1,13 @@
+session:
+  type: in_memory
+  cache:
+    size: 256
+api:
+  host: 0.0.0.0
+  port: 8000
+  custom_router_prefix: ""
+slack:
+  agent_acknowledgement: "Computing junction timings..."
+logging:
+  ak:
+    level: INFO
